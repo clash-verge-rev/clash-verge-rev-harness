@@ -18,8 +18,8 @@ export function projectRoot(path) {
     readFileSync(resolve(root, file))
   return root
 }
-export function automation(project) {
-  const require = createRequire(resolve(project, 'package.json'))
+export function automation() {
+  const require = createRequire(resolve(toolRoot, 'package.json'))
   const packages = ['@wdio/tauri-service', 'webdriverio', 'ws']
   return {
     load: (name) => import(require.resolve(name)),
@@ -27,7 +27,7 @@ export function automation(project) {
       packages.map((name) => [
         name,
         JSON.parse(
-          readFileSync(resolve(project, 'node_modules', name, 'package.json')),
+          readFileSync(resolve(toolRoot, 'node_modules', name, 'package.json')),
         ).version,
       ]),
     ),
@@ -41,6 +41,8 @@ export function harnessHash() {
       'sample.c',
       'workload.mjs',
       'project.mjs',
+      'package.json',
+      'pnpm-lock.yaml',
       'artifacts.mjs',
       'display.mjs',
       'display.m',

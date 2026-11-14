@@ -11,8 +11,10 @@ system proxy. Read-only command-boundary snapshots follow README. Native runs
 are serial; Chrome/Vite checks do not establish native acceptance. Measurement
 contract changes require a schema bump and fresh reports.
 
-Reuse product-installed build and automation dependencies through an explicit
-project path. Dirty worktrees are supported; preserve source, adapter, dependency,
+Reuse product-installed frontend/native build dependencies through an explicit
+project path. Install this checkout's locked automation dependencies with
+`pnpm install --frozen-lockfile`; do not add a second React or Tauri frontend tree.
+Dirty worktrees are supported; preserve source, adapter, dependency,
 binary and report identity. A/B must hold the measurement implementation and input
 constant. Adapter differences require source review, never automatic acceptance.
 
@@ -22,6 +24,16 @@ production checks for integration changes, including scoped Rust Clippy before
 freezing the optimized artifact. Follow README validation order; native coverage
 uses that frozen source and binary. Runtime or measurement changes require
 affected-layer native three-phase smoke, three independent runs, A/A,
-invalid/incomparable rejection and injected-failure cleanup. First pass the
-smallest native path before expanding. Retain failures until diagnosed; cleanup
-only exact task-owned marked artifact directories using the supported command.
+invalid/incomparable rejection and injected-failure cleanup. Before expanding a
+scenario or comparison matrix, pass the smallest native path:
+isolated startup, actual owned WebContent attribution, expected data delivery,
+visibility, nonactivation and owned shutdown. Verify prerequisites normally supplied
+by the product entry. Revisit a failed assumption before retrying; repeat affected
+checks when relevant inputs change, and do not relabel earlier evidence as fresh.
+
+Keep lifecycle/isolation validity, performance sample eligibility and comparison
+benefit separate. Follow the README's fixed host policy and retain all excluded or
+failed attempts with their reasons; do not select retries after inspecting benefit.
+Preserve source/dependency/binary/report bindings and native behavior preflight.
+Keep evidence on ignored paths until diagnosis or requested cleanup; cleanup only
+exact task-owned marked artifact directories using the supported command.

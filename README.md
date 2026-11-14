@@ -43,12 +43,19 @@ git clone https://github.com/clash-verge-rev/clash-verge-rev-harness.git ../clas
 ```
 
 Reuse an existing harness checkout and set `harness` below to its absolute path.
+In the harness checkout, install its locked automation dependencies:
 
-Use the target product checkout’s installed pnpm, Rust and Xcode Command Line
-Tools on macOS. The tool loads automation dependencies from that checkout and
-uses its Vite, React, Tauri and Cargo dependency environment. No tool install or
-second frontend dependency tree is needed. No global
-WebDriver installation is needed. Keep each binary beside its generated manifest.
+```sh
+pnpm install --frozen-lockfile
+```
+
+Use Node.js `>=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1`,
+pnpm 12.18.0, Rust and Xcode Command Line Tools on macOS. The tool owns
+`@wdio/tauri-service`, `webdriverio` and `ws`; their versions and transitive graph
+are fixed by its ordinary pnpm lockfile. Frontend and native builds still use the
+target product checkout's Vite, React, Tauri and Cargo environment. The tool does
+not install another React or Tauri frontend tree. No global WebDriver installation
+is needed. Keep each binary beside its generated manifest.
 
 ```sh
 project=/absolute/path/to/clash-verge-rev
@@ -98,8 +105,10 @@ output files or ancestors are rejected. Official Cargo `build-script-executed`
 messages identify the app's private `OUT_DIR`; its consumed ACL/capability hashes
 must match the generated copies. The input-identity method participates in build
 settings comparison. Keep this checkout stable and exclusive against other Tauri
-configuration builds while building; this is not a general concurrent-build lock. Each run hashes the external measurement implementation and records installed
-automation package versions. Build manifests fingerprint both repositories,
+configuration builds while building; this is not a general concurrent-build lock.
+Each run hashes the external measurement implementation, package manifest and
+pnpm lockfile, and records installed automation package versions. Build manifests
+fingerprint both repositories,
 including dirty, untracked and ignored native inputs; an unborn tool repository
 is supported. Dirty candidates need no commit, submodule or dedicated hash lock.
 The build manifest separately records native/TS adapter and build-config hashes.

@@ -64,7 +64,7 @@ const { values } = parseArgs({
   },
 })
 const project = projectRoot(values.project)
-const driver = automation(project)
+const driver = automation()
 const { createTauriCapabilities } = await driver.load('@wdio/tauri-service')
 const { remote } = await driver.load('webdriverio')
 const { default: WebSocket } = await driver.load('ws')

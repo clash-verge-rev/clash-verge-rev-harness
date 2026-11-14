@@ -4,9 +4,15 @@
   "type": "module",
   "license": "GPL-3.0-only",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1"
   },
   "scripts": {
     "test": "node --test report.test.mjs"
+  },
+  "packageManager": "pnpm@12.18.0",
+  "dependencies": {
+    "@wdio/tauri-service": "1.5.1",
+    "webdriverio": "10.2.0",
+    "ws": "8.22.2"
   }
 }
