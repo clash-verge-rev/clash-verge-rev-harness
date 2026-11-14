@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  realpathSync,
+  symlinkSync,
+} from 'node:fs'
 import { join, relative } from 'node:path'
 import { homedir } from 'node:os'
 import { test } from 'node:test'
@@ -23,6 +30,11 @@ import {
   hostReasons,
   validEligibility,
 } from './host.mjs'
+import {
+  captureBuildInputs,
+  captureGeneratedOutputs,
+  rootBuildOutput,
+} from './build-inputs.mjs'
 import { workload } from './workload.mjs'
 import { hash, gitHead } from './project.mjs'
 import {
@@ -765,4 +777,116 @@ test('host process detector reads untruncated final executable paths and joins N
     compare(baseline, { ...baseline, schema: 'webview-replay-v8' }).verdict,
     'invalid',
   )
+})
+
+test('build identity separates exact generated outputs from ignored source and selects Cargo root OUT_DIR', () => {
+  const root = realpathSync(mkdtempSync('/tmp/cvr-harness-generated-'))
+  try {
+    const schemaRoot = join(root, 'gen/schemas')
+    mkdirSync(schemaRoot, { recursive: true })
+    const generated = [
+      'acl-manifests.json',
+      'capabilities.json',
+      'macOS-schema.json',
+      'desktop-schema.json',
+    ].map((name) => join(schemaRoot, name))
+    for (const path of generated) writeFileSync(path, 'old generated output')
+    writeFileSync(join(root, '.gitignore'), 'gen/\n')
+    writeFileSync(
+      join(root, 'Cargo.toml'),
+      '[package]\nname="candidate"\nversion="0.1.0"\n',
+    )
+    const ignoredSource = join(schemaRoot, 'consumed.bin')
+    writeFileSync(ignoredSource, 'real input')
+    const pkg = {
+      id: 'candidate-id',
+      name: 'candidate',
+      version: '0.1.0',
+      manifest_path: join(root, 'Cargo.toml'),
+      source: null,
+    }
+    const graph = {
+      local: [pkg],
+      metadata: {
+        packages: [pkg],
+        target_directory: join(root, 'target'),
+        build_directory: join(root, 'target'),
+      },
+    }
+    const capture = () =>
+      captureBuildInputs(
+        root,
+        graph,
+        join(root, 'target/perf/fixture'),
+        generated,
+      )
+    const before = capture(),
+      outputBefore = captureGeneratedOutputs(generated)
+    writeFileSync(generated[0], 'new generated output')
+    assert.equal(capture().sha256, before.sha256)
+    assert.notEqual(
+      captureGeneratedOutputs(generated)[0].sha256,
+      outputBefore[0].sha256,
+    )
+    assert.equal(
+      before.inputs[0].entries['gen/schemas/consumed.bin'],
+      hash('real input'),
+    )
+    assert.equal(
+      before.inputs[0].entries['gen/schemas/acl-manifests.json'],
+      undefined,
+    )
+    writeFileSync(ignoredSource, 'changed real input')
+    assert.notEqual(capture().sha256, before.sha256)
+    assert.throws(
+      () =>
+        captureBuildInputs(
+          root,
+          { ...graph, metadata: { ...graph.metadata, target_directory: root } },
+          join(root, 'target/perf/fixture'),
+          generated,
+        ),
+      /overlaps a local source/,
+    )
+    rmSync(generated[0])
+    symlinkSync(join(root, 'missing-shared-file'), generated[0])
+    assert.throws(
+      () => captureGeneratedOutputs(generated),
+      /Symlinked generated output/,
+    )
+    rmSync(generated[0])
+    rmSync(join(root, 'gen'), { recursive: true })
+    mkdirSync(join(root, 'shared-schemas'))
+    symlinkSync(join(root, 'shared-schemas'), join(root, 'gen'))
+    assert.throws(
+      () => captureGeneratedOutputs(generated),
+      /Symlinked generated output/,
+    )
+    const execution = {
+      buildScriptOutputs: [
+        { packageId: 'dependency-id', outDir: '/dependency' },
+        { packageId: pkg.id, outDir: '/owned/root-output' },
+      ],
+    }
+    assert.equal(rootBuildOutput(execution, pkg.id), '/owned/root-output')
+    assert.throws(
+      () => rootBuildOutput(execution, 'missing'),
+      /Expected one root/,
+    )
+    assert.throws(
+      () =>
+        rootBuildOutput(
+          {
+            buildScriptOutputs: [
+              ...execution.buildScriptOutputs,
+              execution.buildScriptOutputs[1],
+            ],
+          },
+          pkg.id,
+        ),
+      /Expected one root/,
+    )
+  } finally {
+    rmSync(root, { recursive: true })
+  }
 })

@@ -6,6 +6,8 @@ import { parseArgs } from 'node:util'
 import { createArtifacts } from './artifacts.mjs'
 import {
   captureBuildInputs,
+  captureGeneratedOutputs,
+  rootBuildOutput,
   cargoMetadata,
   nativeBuild,
   privateBuild,
@@ -25,8 +27,23 @@ const command = (cmd, args, cwd = project) =>
 createArtifacts(project, output, 'build')
 const paths = privateBuild(output)
 const graph = cargoMetadata(project, 'clash-verge', ['perf-harness'], paths)
-const before = captureBuildInputs(project, graph, output)
+const generatedOutputPaths = [
+  'acl-manifests.json',
+  'capabilities.json',
+  'macOS-schema.json',
+  'desktop-schema.json',
+].map((name) => resolve(project, 'src-tauri/gen/schemas', name))
+const beforeGenerated = captureGeneratedOutputs(generatedOutputPaths)
+const before = captureBuildInputs(project, graph, output, generatedOutputPaths)
 const toolBefore = treeIdentity(toolRoot, [resolve(toolRoot, 'target/perf')])
+writeFileSync(
+  resolve(output, 'build-inputs-before.json'),
+  JSON.stringify(
+    { inputs: before, harness: toolBefore, generatedOutputs: beforeGenerated },
+    null,
+    2,
+  ),
+)
 const adapterFiles = Object.fromEntries(
   readdirSync(resolve(project, 'scripts/perf'))
     .filter((path) => /\.(rs|ts|tsx|html|mts|json)$/.test(path))
@@ -54,32 +71,69 @@ const viteArgs = [
   '--outDir',
   paths.frontend,
 ]
-execFileSync('pnpm', viteArgs, { cwd: project, stdio: 'inherit' })
-const execution = nativeBuild(
-  project,
-  paths,
-  'clash-verge',
-  ['perf-harness'],
-  graph.host,
-  { TAURI_CONFIG: JSON.stringify(actualConfiguration) },
-)
-const after = captureBuildInputs(
-  project,
-  cargoMetadata(project, 'clash-verge', ['perf-harness'], paths),
-  output,
-)
-if (
-  before.sha256 !== after.sha256 ||
-  toolBefore.sha256 !==
-    treeIdentity(toolRoot, [resolve(toolRoot, 'target/perf')]).sha256
-)
+let execution, after, toolAfter, afterGenerated, snapshotError
+try {
+  execFileSync('pnpm', viteArgs, { cwd: project, stdio: 'inherit' })
+  execution = nativeBuild(
+    project,
+    paths,
+    'clash-verge',
+    ['perf-harness'],
+    graph.host,
+    { TAURI_CONFIG: JSON.stringify(actualConfiguration) },
+  )
+} finally {
+  try {
+    afterGenerated = captureGeneratedOutputs(generatedOutputPaths)
+    after = captureBuildInputs(
+      project,
+      cargoMetadata(project, 'clash-verge', ['perf-harness'], paths),
+      output,
+      generatedOutputPaths,
+    )
+    toolAfter = treeIdentity(toolRoot, [resolve(toolRoot, 'target/perf')])
+    writeFileSync(
+      resolve(output, 'build-inputs-after.json'),
+      JSON.stringify(
+        { inputs: after, harness: toolAfter, generatedOutputs: afterGenerated },
+        null,
+        2,
+      ),
+    )
+  } catch (error) {
+    snapshotError = error
+    writeFileSync(
+      resolve(output, 'build-inputs-after.json'),
+      JSON.stringify({ error: String(error) }, null, 2),
+    )
+  }
+}
+if (snapshotError) throw snapshotError
+if (before.sha256 !== after.sha256 || toolBefore.sha256 !== toolAfter.sha256)
   throw new Error(
     'Candidate, local dependency, build configuration or harness changed during build; refuse manifest',
   )
+const rootOutDir = rootBuildOutput(execution, graph.packageId)
+const consumedOutputs = captureGeneratedOutputs(
+  ['acl-manifests.json', 'capabilities.json'].map((name) =>
+    resolve(rootOutDir, name),
+  ),
+)
+for (const item of consumedOutputs) {
+  const generated = afterGenerated.find(
+    (output) =>
+      output.path ===
+      resolve(project, 'src-tauri/gen/schemas', item.path.split('/').at(-1)),
+  )
+  if (!item.exists || !generated?.exists || item.sha256 !== generated.sha256)
+    throw new Error(
+      'Generated Tauri ACL changed before its private build copy; refuse manifest',
+    )
+}
 const binary = resolve(output, 'clash-verge')
 copyFileSync(resolve(execution.binaryDirectory, 'clash-verge'), binary)
 const buildCommand =
-  'pnpm exec vite build --mode perf --config scripts/perf/vite.mts --outDir <owned>/frontend; cargo build -p clash-verge --release --locked --target-dir <owned>/target --features perf-harness; CARGO_BUILD_BUILD_DIR=<owned>/intermediates'
+  'pnpm exec vite build --mode perf --config scripts/perf/vite.mts --outDir <owned>/frontend; cargo build -p clash-verge --release --locked --target-dir <owned>/target --message-format json-render-diagnostics --features perf-harness; CARGO_BUILD_BUILD_DIR=<owned>/intermediates'
 const buildEnvironment = {
   ...execution.environment,
   CARGO_TARGET_DIR: '<owned>/target',
@@ -100,6 +154,11 @@ writeFileSync(
       sourceSha256: before.inputs.find((input) => input.root === project)
         .sha256,
       buildInputs: { before, after },
+      generatedOutputs: {
+        before: beforeGenerated,
+        after: afterGenerated,
+        consumed: consumedOutputs,
+      },
       harnessSource: {
         head: gitHead(toolRoot),
         dirty: command('git', ['status', '--porcelain'], toolRoot),
@@ -117,6 +176,11 @@ writeFileSync(
       mode: 'release + perf-harness (private native outputs; resolved inputs recorded)',
       buildSettingsSha256: hash(
         JSON.stringify({
+          inputIdentityMethod:
+            'immutable-inputs-v3-exact-tauri-generated-outputs',
+          generatedOutputPaths: generatedOutputPaths.map((path) =>
+            relative(project, path),
+          ),
           configuration,
           host: graph.host,
           buildCommand,
@@ -133,6 +197,7 @@ writeFileSync(
       buildCommand,
       execution: {
         ...execution,
+        rootBuildScriptOutDir: rootOutDir,
         viteArgs,
         tauriConfigurationSource: resolve(project, 'scripts/perf/tauri.json'),
       },

@@ -90,6 +90,7 @@ export function cargoMetadata(project, packageName, features, paths) {
   visit(root.id)
   return {
     host,
+    packageId: root.id,
     metadata,
     local: metadata.packages.filter(
       (p) => reachable.has(p.id) && p.source === null,
@@ -123,14 +124,58 @@ export function treeIdentity(root, excluded = []) {
     }
   }
   visit(root, '', [])
-  return { sha256: hash(JSON.stringify(files)), files: files.length }
+  return {
+    sha256: hash(JSON.stringify(files)),
+    files: files.length,
+    entries: Object.fromEntries(files),
+  }
 }
-export function captureBuildInputs(project, graph, output) {
+export function captureGeneratedOutputs(paths) {
+  return paths.map((path) => {
+    path = resolve(path)
+    let ancestor = path
+    while (true) {
+      try {
+        lstatSync(ancestor)
+        break
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error
+        ancestor = dirname(ancestor)
+      }
+    }
+    if (
+      lstatSync(ancestor).isSymbolicLink() ||
+      realpathSync(ancestor) !== ancestor
+    )
+      throw new Error(`Symlinked generated output: ${path}`)
+    if (ancestor !== path) return { path, exists: false }
+    if (!lstatSync(path).isFile())
+      throw new Error(`Generated output is not a regular file: ${path}`)
+    const bytes = readFileSync(path)
+    return { path, exists: true, size: bytes.length, sha256: hash(bytes) }
+  })
+}
+export function rootBuildOutput(execution, packageId) {
+  const outputs = execution.buildScriptOutputs.filter(
+    (output) => output.packageId === packageId,
+  )
+  if (outputs.length !== 1)
+    throw new Error('Expected one root package build-script OUT_DIR')
+  return outputs[0].outDir
+}
+export function captureBuildInputs(
+  project,
+  graph,
+  output,
+  generatedOutputPaths = [],
+) {
+  captureGeneratedOutputs(generatedOutputPaths)
   const excluded = [
     resolve(project, 'target'),
     graph.metadata.target_directory,
     graph.metadata.build_directory,
     output,
+    ...generatedOutputPaths,
   ].map((path) => (existsSync(path) ? realpathSync(path) : resolve(path)))
   const roots = [
     ...new Set([
@@ -204,7 +249,16 @@ export function captureBuildInputs(project, graph, output) {
     inputs,
     configuration,
     resolved,
-    sha256: hash(JSON.stringify({ packages, inputs, configuration, resolved })),
+    generatedOutputPaths,
+    sha256: hash(
+      JSON.stringify({
+        packages,
+        inputs,
+        configuration,
+        resolved,
+        generatedOutputPaths,
+      }),
+    ),
   }
 }
 const checkPrivatePaths = (paths) => {
@@ -229,13 +283,35 @@ export function nativeBuild(
     '--locked',
     '--target-dir',
     paths.target,
+    '--message-format',
+    'json-render-diagnostics',
   ]
   if (features.length) args.push('--features', features.join(','))
   const env = buildEnvironment(project, paths, extra)
-  execFileSync('cargo', args, { cwd: project, env, stdio: 'inherit' })
+  const messages = execFileSync('cargo', args, {
+    cwd: project,
+    env,
+    stdio: ['ignore', 'pipe', 'inherit'],
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+  const buildScriptOutputs = messages
+    .filter((message) => message.reason === 'build-script-executed')
+    .map((message) => ({
+      packageId: message.package_id,
+      outDir: message.out_dir,
+    }))
+  for (const { outDir } of buildScriptOutputs)
+    if (realpathSync(outDir) !== outDir || !inside(paths.intermediates, outDir))
+      throw new Error('Build-script output escaped its private directory')
   checkPrivatePaths(paths)
   return {
     args,
+    buildScriptOutputs,
     outputs: paths,
     compiler: {
       path: realpathSync(env.RUSTC),

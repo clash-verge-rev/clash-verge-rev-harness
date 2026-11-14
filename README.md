@@ -79,7 +79,17 @@ recorded separately. This does not trace arbitrary external files read by build
 scripts or verify a manually altered installed frontend dependency tree. Keep
 those inputs controlled; a build-ID string alone never proves the intended native
 dependency behavior. Run a small native behavior preflight before a large A/B
-matrix. Source, dependency or configuration changes during compilation reject the manifest. Each run hashes the external measurement implementation and records installed
+matrix. Source, dependency or configuration changes during compilation reject the manifest.
+Before/after snapshots retain per-file hashes in the ignored build output even when
+that guard fails. Only Tauri's four declared `src-tauri/gen/schemas` outputs
+(`acl-manifests.json`, `capabilities.json`, `macOS-schema.json`, `desktop-schema.json`)
+are separated from immutable source. Their before/after hashes remain recorded;
+all other ignored files in `gen`, including build assets, stay inputs. Symlinked
+output files or ancestors are rejected. Official Cargo `build-script-executed`
+messages identify the app's private `OUT_DIR`; its consumed ACL/capability hashes
+must match the generated copies. The input-identity method participates in build
+settings comparison. Keep this checkout stable and exclusive against other Tauri
+configuration builds while building; this is not a general concurrent-build lock. Each run hashes the external measurement implementation and records installed
 automation package versions. Build manifests fingerprint both repositories,
 including dirty, untracked and ignored native inputs; an unborn tool repository
 is supported. Dirty candidates need no commit, submodule or dedicated hash lock.
