@@ -4,7 +4,7 @@ This guide covers harness operation and evidence interpretation. Instructions fo
 agents modifying the tool live in [AGENTS.md](AGENTS.md).
 Extracted from Clash Verge Rev under GPL-3.0-only; see [LICENSE](LICENSE).
 Product-dependent scenes, real component imports and the isolated native entry
-remain in the target checkout at `scripts/perf`.
+remain in the [product adapter directory](https://github.com/clash-verge-rev/clash-verge-rev/tree/dev/scripts/perf).
 The dedicated optimized Tauri WKWebView supports the production home traffic graph
 and Logs/Connections page, component, and minimal DOM layers. It measures shown
 updates, native hide, then restoration. It does not run Mihomo Core, Service, or
@@ -34,6 +34,15 @@ only affected checks; never relabel earlier runs as tests of a new binary.
 Ordinary product builds do not run this validation sequence or require the tool.
 
 ## Build And Run
+
+For first setup only, clone [this repository](https://github.com/clash-verge-rev/clash-verge-rev-harness)
+next to the product checkout. From the product root:
+
+```sh
+git clone https://github.com/clash-verge-rev/clash-verge-rev-harness.git ../clash-verge-rev-harness
+```
+
+Reuse an existing harness checkout and set `harness` below to its absolute path.
 
 Use the target product checkout’s installed pnpm, Rust and Xcode Command Line
 Tools on macOS. The tool loads automation dependencies from that checkout and
