@@ -1,0 +1,12 @@
+{
+  "name": "clash-verge-rev-harness",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test report.test.mjs"
+  }
+}
